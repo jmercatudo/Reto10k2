@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Ruleta de cápsulas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --plum:#2B1B3D;
+    --plum-deep:#1A0F27;
+    --plastic:#FFC93C;
+    --mint:#6BE3B4;
+    --cream:#FFF8EC;
+    --shadow:0 6px 0 rgba(26,15,39,.45);
+    --pad: env(safe-area-inset-bottom, 0px);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;overflow:hidden;background:var(--plum-deep)}
+  body{
+    font-family:"Fredoka",system-ui,-apple-system,"Segoe UI",sans-serif;
+    color:var(--cream);
+    display:flex;align-items:center;justify-content:center;
+  }
+
+  #stage{position:fixed;inset:0;overflow:hidden;background:var(--plum-deep)}
+  #cam{width:100%;height:100%;object-fit:cover;display:block}
+  #cam.mirrored{transform:scaleX(-1)}
+
+  /* ---- el objeto que gira sobre la cabeza ---- */
+  #sprite{
+    position:absolute;left:0;top:0;
+    width:120px;height:120px;
+    display:flex;align-items:center;justify-content:center;
+    pointer-events:none;
+    will-change:transform;
+    opacity:0;
+    transition:opacity .25s ease;
+  }
+  #sprite.live{opacity:1}
+  #sprite img{width:100%;height:100%;object-fit:contain;display:block;
+    filter:drop-shadow(0 4px 10px rgba(0,0,0,.55))}
+  #sprite .glyph{font-size:88px;line-height:1;filter:drop-shadow(0 4px 10px rgba(0,0,0,.55))}
+  #sprite.landed{animation:pop .45s cubic-bezier(.2,1.6,.4,1)}
+  @keyframes pop{
+    0%{transform:scale(.55)}
+    60%{transform:scale(1.14)}
+    100%{transform:scale(1)}
+  }
+
+  #label{
+    position:absolute;left:50%;transform:translateX(-50%);
+    background:var(--plastic);color:var(--plum-deep);
+    font-weight:600;font-size:19px;letter-spacing:.2px;
+    padding:7px 18px 8px;border-radius:999px;
+    box-shadow:var(--shadow);
+    opacity:0;transition:opacity .2s ease;
+    pointer-events:none;white-space:nowrap;max-width:82vw;
+    overflow:hidden;text-overflow:ellipsis;
+  }
+  #label.show{opacity:1}
+
+  /* ---- controles ---- */
+  #topbar{
+    position:absolute;top:calc(14px + env(safe-area-inset-top,0px));left:0;right:0;
+    display:flex;gap:9px;justify-content:center;
+    transition:opacity .25s ease;
+  }
+  .chip{
+    font-family:inherit;font-size:14px;font-weight:500;
+    color:var(--cream);background:rgba(26,15,39,.62);
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+    border:1.5px solid rgba(255,248,236,.22);
+    border-radius:999px;padding:9px 15px;cursor:pointer;
+  }
+  .chip:active{transform:translateY(1px)}
+  .chip:focus-visible{outline:3px solid var(--mint);outline-offset:2px}
+  .chip[aria-pressed="true"]{background:var(--mint);color:var(--plum-deep);border-color:var(--mint)}
+
+  #spin{
+    position:absolute;left:50%;bottom:calc(30px + var(--pad));
+    transform:translateX(-50%);
+    width:104px;height:104px;border-radius:50%;
+    border:none;cursor:pointer;
+    background:radial-gradient(circle at 50% 34%, #FFE08A 0%, var(--plastic) 46%, #E0A400 100%);
+    color:var(--plum-deep);
+    font-family:inherit;font-size:17px;font-weight:700;
+    box-shadow:0 8px 0 #A97900, 0 14px 26px rgba(0,0,0,.45);
+    transition:opacity .25s ease;
+  }
+  #spin:active{transform:translateX(-50%) translateY(5px);box-shadow:0 3px 0 #A97900,0 8px 16px rgba(0,0,0,.4)}
+  #spin:focus-visible{outline:3px solid var(--mint);outline-offset:4px}
+  #spin[disabled]{filter:saturate(.4) brightness(.8);cursor:default}
+
+  .hidden-ui #topbar, .hidden-ui #spin, .hidden-ui #count{opacity:0;pointer-events:none}
+
+  #count{
+    position:absolute;left:50%;transform:translateX(-50%);
+    bottom:calc(12px + var(--pad));
+    font-size:12.5px;color:rgba(255,248,236,.6);
+    transition:opacity .25s ease;
+  }
+
+  #showui{
+    position:absolute;right:14px;bottom:calc(30px + var(--pad));
+    width:44px;height:44px;border-radius:50%;
+    background:rgba(26,15,39,.5);border:1.5px solid rgba(255,248,236,.25);
+    color:var(--cream);font-size:18px;cursor:pointer;display:none;
+  }
+  .hidden-ui #showui{display:block}
+
+  /* ---- pantallas de estado ---- */
+  #gate{
+    position:absolute;inset:0;background:var(--plum);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:22px;padding:32px;text-align:center;
+  }
+  #gate h1{font-size:31px;font-weight:600;line-height:1.15;max-width:9ch}
+  #gate p{font-size:15.5px;font-weight:400;line-height:1.5;color:rgba(255,248,236,.72);max-width:34ch}
+  #gate button{
+    font-family:inherit;font-size:17px;font-weight:600;
+    background:var(--plastic);color:var(--plum-deep);
+    border:none;border-radius:999px;padding:15px 30px;cursor:pointer;
+    box-shadow:var(--shadow);
+  }
+  #gate button:focus-visible{outline:3px solid var(--mint);outline-offset:3px}
+  #gate.gone{display:none}
+  .machine{font-size:60px;line-height:1}
+
+  #toast{
+    position:absolute;left:50%;top:calc(64px + env(safe-area-inset-top,0px));
+    transform:translateX(-50%);
+    background:rgba(26,15,39,.85);border:1.5px solid rgba(255,248,236,.2);
+    border-radius:14px;padding:10px 16px;font-size:14px;font-weight:400;
+    max-width:86vw;text-align:center;opacity:0;transition:opacity .3s ease;
+    pointer-events:none;
+  }
+  #toast.show{opacity:1}
+
+  @media (prefers-reduced-motion: reduce){
+    #sprite.landed{animation:none}
+    *{transition-duration:.01ms !important}
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="cam" playsinline autoplay muted></video>
+
+  <div id="sprite" aria-hidden="true"><span class="glyph">🎲</span></div>
+  <div id="label"></div>
+
+  <div id="topbar">
+    <button class="chip" id="btn-files">Mis imágenes</button>
+    <button class="chip" id="btn-sound" aria-pressed="true">Sonido</button>
+    <button class="chip" id="btn-hide">Ocultar</button>
+    <button class="chip" id="btn-flip">Girar cámara</button>
+  </div>
+
+  <button id="spin">Girar</button>
+  <button id="showui" title="Mostrar controles">◉</button>
+  <div id="count"></div>
+
+  <div id="toast" role="status"></div>
+
+  <div id="gate">
+    <div class="machine">🎰</div>
+    <h1>Ruleta sobre tu cabeza</h1>
+    <p>Gira y te toca uno al azar. 100 criaturas cargadas. La primera vez tarda unos segundos en descargarlas: mejor con wifi.</p>
+    <button id="start">Encender la cámara</button>
+  </div>
+
+  <input type="file" id="filepick" accept="image/*" multiple hidden>
+</div>
+
+<script type="module">
+/* ==========================================================
+   RULETA DE CÁPSULAS
+   Motor agnóstico al contenido: la baraja se define en DECK.
+   Sustituye la baraja cargando tus propias imágenes con el
+   botón "Mis imágenes", o edita DEFAULT_DECK más abajo.
+   ========================================================== */
+
+const $ = s => document.querySelector(s);
+const stage = $('#stage'), cam = $('#cam'), sprite = $('#sprite'),
+      label = $('#label'), spinBtn = $('#spin'), gate = $('#gate'),
+      toastEl = $('#toast'), countEl = $('#count'), filepick = $('#filepick');
+
+/* ---------- 1. LA BARAJA ---------------------------------- */
+/* Sprites servidos por PokeAPI (proyecto abierto de fans).
+   Formato: [nombre, numero de Pokedex].
+   Para cambiar la lista, edita DEX: anade o quita lineas.     */
+const ART = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/';
+
+const DEX = [
+  ["Charizard",6],["Pikachu",25],["Umbreon",197],["Sylveon",700],["Espeon",196],["Eevee",133],
+  ["Vaporeon",134],["Jolteon",135],["Flareon",136],["Leafeon",470],["Glaceon",471],
+  ["Mewtwo",150],["Mew",151],["Gengar",94],["Rayquaza",384],["Lucario",448],["Greninja",658],
+  ["Dragonite",149],["Gardevoir",282],["Snorlax",143],["Tyranitar",248],["Garchomp",445],
+  ["Metagross",376],["Salamence",373],["Absol",359],["Scizor",212],["Blaziken",257],
+  ["Sceptile",254],["Swampert",260],["Milotic",350],["Togekiss",468],["Zoroark",571],
+  ["Volcarona",637],["Chandelure",609],["Kingambit",983],["Baxcalibur",998],
+  ["Chien-Pao",1002],["Chi-Yu",1004],["Great Tusk",984],["Iron Crown",1023],["Urshifu",892],
+  ["Sneasler",903],["Blastoise",9],["Venusaur",3],["Charmander",4],["Squirtle",7],
+  ["Bulbasaur",1],["Machamp",68],["Arcanine",59],["Gyarados",130],["Lapras",131],
+  ["Ditto",132],["Jigglypuff",39],["Meowth",52],["Psyduck",54],["Magikarp",129],
+  ["Alakazam",65],["Zapdos",145],["Articuno",144],["Moltres",146],["Arceus",493],
+  ["Giratina",487],["Dialga",483],["Palkia",484],["Lugia",249],["Ho-Oh",250],["Darkrai",491],
+  ["Zacian",888],["Calyrex",898],["Miraidon",1008],["Koraidon",1007],["Terapagos",1024],
+  ["Ogerpon",1017],["Pecharunt",1025],["Zygarde",718],["Latias",380],["Gholdengo",1000],
+  ["Dragapult",887],["Raging Bolt",1021],["Roaring Moon",1005],["Iron Valiant",1006],
+  ["Flutter Mane",987],["Iron Hands",992],["Grimmsnarl",861],["Hydreigon",635],["Pidgeot",18],
+  ["Slowking",199],["Munkidori",1015],["Ceruledge",937],["Feraligatr",160],["Mimikyu",778],
+  ["Cinderace",815],["Decidueye",724],["Meowscarada",908],["Skeledirge",911],
+  ["Quaquaval",914],["Tinkaton",959],["Clodsire",980],["Annihilape",979],["Corviknight",823]
+];
+
+const DEFAULT_DECK = DEX.map(([name, id]) => ({ name, src: ART + id + '.png' }));
+
+let DECK = DEFAULT_DECK.slice();
+let ready = [];            // indices ya descargados y listos para girar
+let lastIndex = -1;
+
+/* ---------- 2. CÁMARA ------------------------------------- */
+let stream = null, facing = 'user';
+
+async function startCamera(){
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({
+      video:{ facingMode: facing, width:{ideal:1280}, height:{ideal:720} },
+      audio:false
+    });
+  }catch(err){
+    toast('No se pudo abrir la cámara. Revisa los permisos del navegador y usa una dirección https.');
+    return false;
+  }
+  cam.srcObject = stream;
+  cam.classList.toggle('mirrored', facing === 'user');
+  await cam.play().catch(()=>{});
+  return true;
+}
+
+/* ---------- 3. SEGUIMIENTO DE CABEZA ---------------------- */
+/* MediaPipe FaceDetector. Si no carga, el objeto se ancla
+   arriba en el centro y la app sigue funcionando.            */
+let detector = null, tracking = false;
+const smooth = { x:0, y:0, w:0, ready:false };
+
+async function initTracking(){
+  try{
+    const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+    const files = await vision.FilesetResolver.forVisionTasks(
+      'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+    detector = await vision.FaceDetector.createFromOptions(files, {
+      baseOptions:{
+        modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite',
+        delegate:'GPU'
+      },
+      runningMode:'VIDEO'
+    });
+    tracking = true;
+  }catch(err){
+    tracking = false;
+    toast('Sin detección de cara: el objeto se queda fijo arriba. Funciona igual.');
+  }
+}
+
+function placeFallback(){
+  const r = stage.getBoundingClientRect();
+  const w = Math.min(r.width * 0.34, 190);
+  setSprite(r.width/2 - w/2, r.height*0.13, w);
+}
+
+function setSprite(left, top, size){
+  sprite.style.width = size + 'px';
+  sprite.style.height = size + 'px';
+  sprite.style.transform = `translate(${left}px, ${top}px)`;
+  const g = sprite.querySelector('.glyph');
+  if (g) g.style.fontSize = (size * 0.74) + 'px';
+  label.style.top = (top + size + 8) + 'px';
+  sprite.classList.add('live');
+}
+
+function loop(){
+  requestAnimationFrame(loop);
+  if (!cam.videoWidth) return;
+
+  if (!tracking || !detector){ placeFallback(); return; }
+
+  let det = null;
+  try{
+    const res = detector.detectForVideo(cam, performance.now());
+    det = res.detections && res.detections[0];
+  }catch(e){ /* frame suelto, se ignora */ }
+
+  if (!det){ if (!smooth.ready) placeFallback(); return; }
+
+  const b = det.boundingBox;                       // px del frame de vídeo
+  const r = stage.getBoundingClientRect();
+  const scale = Math.max(r.width / cam.videoWidth, r.height / cam.videoHeight);
+  const offX = (r.width  - cam.videoWidth  * scale) / 2;
+  const offY = (r.height - cam.videoHeight * scale) / 2;
+
+  let x = offX + b.originX * scale;
+  const w = b.width * scale;
+  const y = offY + b.originY * scale;
+  if (facing === 'user') x = r.width - (x + w);     // vídeo espejado
+
+  if (!smooth.ready){ smooth.x = x; smooth.y = y; smooth.w = w; smooth.ready = true; }
+  const k = 0.25;                                   // suavizado
+  smooth.x += (x - smooth.x) * k;
+  smooth.y += (y - smooth.y) * k;
+  smooth.w += (w - smooth.w) * k;
+
+  const size = smooth.w * 1.05;
+  setSprite(smooth.x + smooth.w/2 - size/2, smooth.y - size * 0.92, size);
+}
+
+/* ---------- 4. LA RULETA ---------------------------------- */
+let spinning = false;
+
+function render(item){
+  sprite.innerHTML = '';
+  if (item.src){
+    const img = new Image();
+    img.src = item.src;
+    img.alt = '';
+    sprite.appendChild(img);
+  } else {
+    const s = document.createElement('span');
+    s.className = 'glyph';
+    s.textContent = item.glyph;
+    sprite.appendChild(s);
+  }
+}
+
+/* Precarga en segundo plano. La ruleta puede girar en cuanto
+   haya dos listos; el resto se va sumando solo.               */
+function preload(){
+  ready = [];
+  DECK.forEach((item, i) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => {
+      ready.push(i);
+      updateCount();
+      if (ready.length === 1) render(DECK[i]);
+    };
+    img.onerror = () => updateCount();
+    img.src = item.src;
+  });
+}
+
+function pick(){
+  const pool = ready.length ? ready : DECK.map((_, i) => i);
+  if (pool.length < 2) return pool[0] ?? 0;
+  let i;
+  do { i = pool[Math.floor(Math.random() * pool.length)]; } while (i === lastIndex);
+  return i;
+}
+
+function randomVisible(){
+  const pool = ready.length ? ready : [0];
+  return DECK[pool[Math.floor(Math.random() * pool.length)]];
+}
+
+function spin(){
+  if (spinning || !DECK.length) return;
+  if (!ready.length){ toast('Todavía descargando. Un segundo.'); return; }
+  spinning = true;
+  spinBtn.disabled = true;
+  document.body.classList.add('hidden-ui');
+  label.classList.remove('show');
+  sprite.classList.remove('landed');
+
+  const winner = pick();
+  const t0 = performance.now();
+  const DURATION = 2500;
+  let interval = 45;
+
+  const tick = () => {
+    const elapsed = performance.now() - t0;
+    if (elapsed < DURATION){
+      render(randomVisible());
+      blip(360 + Math.random() * 90, 0.028);
+      interval *= 1.062;                       // desacelera
+      setTimeout(tick, interval);
+    } else {
+      lastIndex = winner;
+      render(DECK[winner]);
+      void sprite.offsetWidth;
+      sprite.classList.add('landed');
+      label.textContent = DECK[winner].name;
+      label.classList.add('show');
+      fanfare();
+      spinning = false;
+      spinBtn.disabled = false;
+      if (!uiHidden) document.body.classList.remove('hidden-ui');
+    }
+  };
+  tick();
+}
+
+/* ---------- 5. SONIDO ------------------------------------- */
+let audioCtx = null, soundOn = true;
+function ac(){
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function blip(freq, dur, type = 'square', vol = 0.06){
+  if (!soundOn) return;
+  try{
+    const c = ac(), o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+    o.connect(g); g.connect(c.destination);
+    o.start(); o.stop(c.currentTime + dur);
+  }catch(e){}
+}
+function fanfare(){
+  [[523,0],[659,90],[784,180],[1046,270]].forEach(([f,d]) =>
+    setTimeout(() => blip(f, 0.22, 'triangle', 0.09), d));
+}
+
+/* ---------- 6. CARGAR TUS IMÁGENES ------------------------ */
+filepick.addEventListener('change', e => {
+  const files = [...e.target.files].filter(f => f.type.startsWith('image/'));
+  if (!files.length) return;
+  DECK = files.map(f => ({
+    name: f.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim(),
+    src: URL.createObjectURL(f)
+  })).sort((a,b) => a.name.localeCompare(b.name, 'es', {numeric:true}));
+  lastIndex = -1;
+  ready = DECK.map((_, i) => i);
+  render(DECK[0]);
+  label.classList.remove('show');
+  updateCount();
+  toast(`Baraja cargada: ${DECK.length} imágenes.`);
+  filepick.value = '';
+});
+
+function updateCount(){
+  countEl.textContent = ready.length < DECK.length
+    ? `cargando ${ready.length} de ${DECK.length}`
+    : `${DECK.length} en la ruleta`;
+}
+
+/* ---------- 7. CONTROLES ---------------------------------- */
+let uiHidden = false;
+let toastTimer = null;
+function toast(msg){
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 4200);
+}
+
+$('#btn-files').onclick = () => filepick.click();
+
+$('#btn-sound').onclick = e => {
+  soundOn = !soundOn;
+  e.currentTarget.setAttribute('aria-pressed', String(soundOn));
+  if (soundOn) blip(700, .07);
+};
+
+$('#btn-hide').onclick = () => {
+  uiHidden = true;
+  document.body.classList.add('hidden-ui');
+  toast('Toca la pantalla para girar. El círculo de la esquina devuelve los controles.');
+};
+
+$('#showui').onclick = ev => {
+  ev.stopPropagation();
+  uiHidden = false;
+  document.body.classList.remove('hidden-ui');
+};
+
+$('#btn-flip').onclick = async () => {
+  facing = facing === 'user' ? 'environment' : 'user';
+  smooth.ready = false;
+  await startCamera();
+};
+
+spinBtn.onclick = ev => { ev.stopPropagation(); spin(); };
+
+stage.addEventListener('click', ev => {
+  if (ev.target.closest('button')) return;
+  if (gate.classList.contains('gone')) spin();
+});
+
+document.addEventListener('keydown', ev => {
+  if (ev.code === 'Space' || ev.code === 'Enter'){
+    if (gate.classList.contains('gone')){ ev.preventDefault(); spin(); }
+  }
+});
+
+/* ---------- 8. ARRANQUE ----------------------------------- */
+$('#start').onclick = async () => {
+  try{ ac().resume(); }catch(e){}
+  const ok = await startCamera();
+  if (!ok) return;
+  gate.classList.add('gone');
+  preload();
+  updateCount();
+  placeFallback();
+  loop();
+  initTracking();
+};
+
+window.addEventListener('resize', () => { smooth.ready = false; });
+</script>
+</body>
+</html>
